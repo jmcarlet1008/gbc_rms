@@ -1,0 +1,131 @@
+import React from 'react';
+import { Combobox } from './Combobox';
+
+// Reduced funds list for better responsiveness
+const FUNDS = ['Tithes', 'Offering', 'Mission', 'Building', 'CCM', 'Others'];
+
+export function TransactionTable({
+    mode = 'member', // 'member' or 'guest'
+    transactions,
+    members,
+    onUpdateTransaction,
+    onRemoveTransaction,
+    onAddTransaction,
+    title
+}) {
+
+    const calculateRowTotal = (t) => {
+        return FUNDS.reduce((sum, fund) => sum + (parseFloat(t[fund]) || 0), 0);
+    };
+
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-full overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/30">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
+                    {mode === 'member' && <span className="w-2 h-2 rounded-full bg-blue-500"></span>}
+                    {mode === 'guest' && <span className="w-2 h-2 rounded-full bg-orange-500"></span>}
+                    {title}
+                </h3>
+                <button
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                    onClick={onAddTransaction}
+                >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Entry
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-auto">
+                <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-white z-10 shadow-sm">
+                        <tr>
+                            <th className="p-3 text-left font-bold text-gray-500 uppercase tracking-wider w-40 bg-gray-50/80 backdrop-blur-sm border-b border-gray-100">Name</th>
+                            {FUNDS.map(f => (
+                                <th key={f} className="p-3 text-center font-bold text-gray-500 uppercase tracking-wider w-20 bg-gray-50/80 backdrop-blur-sm border-b border-gray-100">{f}</th>
+                            ))}
+                            <th className="p-3 text-center font-bold text-indigo-600 uppercase tracking-wider w-24 bg-indigo-50/30 border-b border-gray-100">GCash</th>
+                            <th className="p-3 text-center font-bold text-gray-800 uppercase tracking-wider w-20 bg-gray-100/50 border-b border-gray-100">Total</th>
+                            <th className="p-3 w-8 bg-gray-50/80 border-b border-gray-100"></th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                        {transactions.map((t, index) => (
+                            <tr key={t.id || index} className="hover:bg-blue-50/30 transition-colors group">
+                                <td className="p-2 pl-3">
+                                    {mode === 'guest' ? (
+                                        <input
+                                            type="text"
+                                            placeholder="Guest Name"
+                                            value={t.guestName || ''}
+                                            onChange={(e) => onUpdateTransaction(index, 'guestName', e.target.value)}
+                                            className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-transparent focus:bg-white focus:border-indigo-300 rounded outline-none transition-all placeholder-gray-400 font-medium text-gray-800"
+                                        />
+                                    ) : (
+                                        <div className="w-full">
+                                            <Combobox
+                                                options={members}
+                                                value={t.memberId}
+                                                onChange={(val) => onUpdateTransaction(index, 'memberId', val)}
+                                                placeholder="Search Member..."
+                                            />
+                                        </div>
+                                    )}
+                                </td>
+                                {FUNDS.map(fund => (
+                                    <td key={fund} className="p-1.5">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full text-xs py-1.5 px-1 text-center bg-gray-50/50 border border-transparent focus:bg-white focus:border-indigo-300 rounded outline-none transition-all font-mono text-gray-700 hover:bg-white hover:border-gray-200"
+                                            placeholder="0"
+                                            value={t[fund] || ''}
+                                            onChange={(e) => onUpdateTransaction(index, fund, e.target.value)}
+                                        />
+                                    </td>
+                                ))}
+                                <td className="p-1.5 bg-indigo-50/10">
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        className="w-full text-xs py-1.5 px-1 text-center bg-indigo-50/50 border border-transparent focus:bg-white focus:border-indigo-400 rounded outline-none transition-all font-mono font-medium text-indigo-700 placeholder-indigo-200"
+                                        placeholder="0"
+                                        value={t.GCASH || ''}
+                                        onChange={(e) => onUpdateTransaction(index, 'GCASH', e.target.value)}
+                                    />
+                                </td>
+                                <td className="p-2 text-center font-bold text-gray-900 bg-gray-50/30 font-mono">
+                                    {calculateRowTotal(t).toLocaleString()}
+                                </td>
+                                <td className="p-2 text-center">
+                                    <button
+                                        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                                        onClick={() => onRemoveTransaction(index)}
+                                        title="Remove Entry"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                        {transactions.length === 0 && (
+                            <tr>
+                                <td colSpan={FUNDS.length + 4} className="text-center py-12">
+                                    <div className="flex flex-col items-center justify-center text-gray-300">
+                                        <svg className="w-8 h-8 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                        </svg>
+                                        <span className="text-xs font-medium">No entries added yet</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
