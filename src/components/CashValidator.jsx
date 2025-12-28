@@ -2,31 +2,43 @@ import React, { useState, useEffect } from 'react';
 
 const DENOMINATIONS = [1000, 500, 200, 100, 50, 20, 10, 5, 1];
 
-export function CashValidator({ expectedCash, onTotalChange }) {
-    const [counts, setCounts] = useState(
-        DENOMINATIONS.reduce((acc, d) => ({ ...acc, [d]: '' }), {})
-    );
+export function CashValidator({ expectedCash, onTotalChange, counts = {}, onChange }) {
+    // Pure controlled component: no internal state for counts.
+    // Parent manages 'counts' object (cashCounts).
+
+    // We can't default everything to empty strings if we want to show zeros or placeholder.
+    // Parent sends `counts`.
+    // We should ensure counts is not null.
 
     const calculateTotal = (currentCounts) => {
-        return DENOMINATIONS.reduce((sum, d) => sum + (d * (parseInt(currentCounts[d]) || 0)), 0);
+        return DENOMINATIONS.reduce((sum, d) => sum + (d * (parseInt(currentCounts?.[d]) || 0)), 0);
     };
 
-    // Effect to notify parent of total changes
-    useEffect(() => {
-        if (onTotalChange) {
-            onTotalChange(calculateTotal(counts));
-        }
-    }, [counts, onTotalChange]);
-
+    // Calculate total immediately from props
     const totalCounted = calculateTotal(counts);
     const diff = totalCounted - expectedCash;
     const isBalanced = diff === 0;
 
-    const handleCountChange = (denom, value) => {
-        setCounts(prev => ({
-            ...prev,
-            [denom]: value
-        }));
+    // Notify parent of TOTAL change whenever counts change (via render)
+    // Avoid useEffect if possible, but parent needs ON_TOTAL_CHANGE.
+    // Better: Parent calculates total himself? Or we pass it up.
+    // Ideally parent should calculate total from 'cashCounts' state if it has it.
+    // But existing prop is onTotalChange. Let's keep it for compatibility or refactor parent.
+    // Let's use effect but only call if changed.
+    useEffect(() => {
+        if (onTotalChange) {
+            onTotalChange(totalCounted);
+        }
+    }, [totalCounted, onTotalChange]);
+
+
+    const handleInputChange = (denom, value) => {
+        if (onChange) {
+            onChange({
+                ...counts,
+                [denom]: value
+            });
+        }
     };
 
     return (
@@ -58,12 +70,12 @@ export function CashValidator({ expectedCash, onTotalChange }) {
                                             className="w-20 text-center py-1.5 px-2 bg-gray-50 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
                                             min="0"
                                             placeholder="0"
-                                            value={counts[denom]}
-                                            onChange={(e) => handleCountChange(denom, e.target.value)}
+                                            value={counts?.[denom] || ''}
+                                            onChange={(e) => handleInputChange(denom, e.target.value)}
                                         />
                                     </td>
                                     <td className="p-2 pr-4 text-right font-mono text-gray-600">
-                                        ₱ {((parseInt(counts[denom]) || 0) * denom).toLocaleString()}
+                                        ₱ {((parseInt(counts?.[denom]) || 0) * denom).toLocaleString()}
                                     </td>
                                 </tr>
                             ))}

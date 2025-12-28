@@ -1,67 +1,172 @@
-import React, { useState } from 'react';
 
+import React, { useState, useEffect } from 'react';
 import { ImportService } from '../services/ImportService';
 
-export function MemberManager({ members, onAddMember, onImportMembers }) {
+export function MemberManager({ members, onAddMember, onImportMembers, showToast }) {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [middleInitial, setMiddleInitial] = useState('');
-    const [newMemberCode, setNewMemberCode] = useState('');
-    const [isImporting, setIsImporting] = useState(false);
 
+    // Default to 'Member'
+    const [newMemberType, setNewMemberType] = useState('Member');
+    const [newMemberCode, setNewMemberCode] = useState('');
+
+    const [isImporting, setIsImporting] = useState(false);
     const [editingMember, setEditingMember] = useState(null);
 
-    const handleImport = async () => {
-        // Simplified confirmation - or could use a custom modal.
-        // For now, let's assume the user knows what they are doing if they click it, or provide a gentler confirm.
-        if (!window.confirm("Import members from Excel? This will replace the current list.")) return;
+    // Safe UUID helper
+    const generateId = () => {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    };
+
+    // -------------------------------------------------------------------------
+    // CODE GENERATION LOGIC
+    // Format: "M0001" or "N0001" (4 digits) based on Type
+    // Logic: Find first available gap for the specific Type
+    // -------------------------------------------------------------------------
+    const getNextCode = (type, currentMembers) => {
+        const prefix = type === 'Member' ? 'M' : 'N';
+
+        // Filter members of this type AND matching prefix logic to be safe
+        const relevantMembers = currentMembers.filter(m =>
+            m.type === type || m.code.startsWith(prefix)
+        );
+
+        // Extract numbers: "M0001" -> 1
+        const numbers = relevantMembers
+            .map(m => {
+                // Remove non-digits
+                const numStr = m.code.replace(/\D/g, '');
+                return parseInt(numStr, 10);
+            })
+            .filter(n => !isNaN(n))
+            .sort((a, b) => a - b);
+
+        if (numbers.length === 0) return `${prefix}0001`;
+
+        // Gap Finding
+        let expected = 1;
+        for (const num of numbers) {
+            if (num !== expected) {
+                // Gap found
+                return `${prefix}${String(expected).padStart(4, '0')}`;
+            }
+            expected++;
+        }
+
+        // No gaps, take next
+        return `${prefix}${String(expected).padStart(4, '0')}`;
+    };
+
+    // Auto-update code when Members change OR Type changes
+    useEffect(() => {
+        const nextCode = getNextCode(newMemberType, members);
+        setNewMemberCode(nextCode);
+    }, [members, newMemberType]);
+
+
+    // -------------------------------------------------------------------------
+    // HANDLERS
+    // -------------------------------------------------------------------------
+
+    const fileInputRef = React.useRef(null);
+
+    const handleImportClick = () => {
+        if (window.confirm("Import members from Excel? This will replace the current list.")) {
+            fileInputRef.current.click();
+        }
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        showToast("Reading file...", "info");
+        setIsImporting(true);
 
         try {
-            setIsImporting(true);
-            const importedMembers = await ImportService.importMembersFromUrl('/MembersList.xlsx');
-            console.log("Imported members:", importedMembers);
+            const importedMembers = await ImportService.importMembersFromFile(file);
 
             if (onImportMembers) {
-                onImportMembers(importedMembers);
-                alert(`Successfully imported ${importedMembers.length} members!`);
+                // Ensure IDs
+                const processed = importedMembers.map(m => ({ ...m, id: m.id || generateId() }));
+                console.log("Calling onImportMembers with:", processed.length);
+                onImportMembers(processed);
+                showToast(`Successfully imported ${processed.length} members!`, 'success');
             } else {
                 console.error("onImportMembers prop is missing!");
-                alert("Error: Could not update member list (Internal Error).");
+                showToast("Error: App configuration is missing import handler.", 'error');
             }
         } catch (error) {
             console.error("Import failed:", error);
-            alert("Failed to import: " + error.message);
+            showToast("Failed to import: " + error.message, 'error');
         } finally {
             setIsImporting(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = ''; // Reset input
+            }
         }
     };
 
     const handleClear = () => {
         if (window.confirm("Are you sure you want to DELETE ALL members? This cannot be undone.")) {
             if (onImportMembers) {
-                onImportMembers([]);
+                console.log("Clearing all members...");
+                onImportMembers([]); // Send empty array to parent
+                showToast("All members have been deleted.", 'success');
+            } else {
+                showToast("Error: Cannot clear members (handler missing).", 'error');
+            }
+        }
+    };
+
+    const handleDeleteClick = (id) => {
+        if (window.confirm("Delete this member?")) {
+            console.log("Deleting member ID:", id);
+            const updatedMembers = members.filter(m => m.id !== id);
+
+            if (onImportMembers) {
+                onImportMembers(updatedMembers);
+                showToast("Member deleted.", 'success');
+            } else {
+                showToast("Error: Cannot delete member (handler missing).", 'error');
             }
         }
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!lastName.trim()) return; // First name might be optional? adhering to previous logic it was checked.
+        if (!lastName.trim()) return;
+
+        const codeToUse = newMemberCode.trim();
+
+        // Duplicate Check (Global or Per Type? Ideally global code uniqueness is safest, but prefix protects us)
+        const isDuplicate = members.some(m => m.code === codeToUse);
+        if (isDuplicate) {
+            showToast(`Error: Code "${codeToUse}" already exists.`, 'error');
+            return;
+        }
 
         const fullName = `${lastName.trim()}, ${firstName.trim()}${middleInitial ? ' ' + middleInitial.trim() + '.' : ''}`;
 
-        onAddMember({
-            id: crypto.randomUUID(),
+        const newMember = {
+            id: generateId(),
             name: fullName,
-            code: newMemberCode.trim(),
-            type: 'Member' // Default to Member
-        });
+            code: codeToUse,
+            type: newMemberType
+        };
 
-        // Reset form
+        // Use onAddMember if available, strictly it just appends
+        if (onAddMember) {
+            onAddMember(newMember);
+            showToast("Member added successfully!", 'success');
+        }
+
+        // Reset inputs
         setFirstName('');
         setLastName('');
         setMiddleInitial('');
-        setNewMemberCode('');
+        // Code will auto-update via useEffect
     };
 
     // Edit Handlers
@@ -72,20 +177,22 @@ export function MemberManager({ members, onAddMember, onImportMembers }) {
     const handleSaveEdit = () => {
         if (!editingMember.name.trim()) return;
 
+        // Duplicate Check (Exclude self)
+        const isDuplicate = members.some(m => m.code === editingMember.code && m.id !== editingMember.id);
+        if (isDuplicate) {
+            showToast(`Error: Code "${editingMember.code}" already exists.`, 'error');
+            return;
+        }
+
         const updatedMembers = members.map(m =>
             m.id === editingMember.id ? editingMember : m
         );
 
         if (onImportMembers) {
             onImportMembers(updatedMembers);
+            showToast("Member updated successfully.", 'success');
         }
         setEditingMember(null);
-    };
-
-    const handleDeleteClick = (id) => {
-        if (!window.confirm("Delete this member?")) return;
-        const updatedMembers = members.filter(m => m.id !== id);
-        if (onImportMembers) onImportMembers(updatedMembers);
     };
 
     return (
@@ -105,22 +212,18 @@ export function MemberManager({ members, onAddMember, onImportMembers }) {
                     </button>
                     <button
                         className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
-                        onClick={handleImport}
+                        onClick={handleImportClick}
                         disabled={isImporting}
                     >
                         {isImporting ? 'Importing...' : 'Import from Excel'}
                     </button>
-                    <button
-                        className="px-4 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
-                        onClick={() => {
-                            if (window.confirm("This will overwrite current members with 'MembersList.xlsx' from the public folder. Proceed?")) {
-                                handleImport();
-                            }
-                        }}
-                        style={{ display: 'none' }} // Hidden debug button
-                    >
-                        Debug Import
-                    </button>
+                    <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        ref={fileInputRef}
+                        style={{ display: 'none' }}
+                        onChange={handleFileChange}
+                    />
                 </div>
             </div>
 
@@ -142,8 +245,8 @@ export function MemberManager({ members, onAddMember, onImportMembers }) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {members.map(member => (
-                                    <tr key={member.id} className="hover:bg-gray-50/80 transition-colors group">
+                                {members.map((member, index) => (
+                                    <tr key={member.id || index} className="hover:bg-gray-50/80 transition-colors group">
                                         <td className="p-3 font-mono text-sm text-gray-500">{member.code || '-'}</td>
                                         <td className="p-3 font-bold text-gray-900">{member.name}</td>
                                         <td className="p-3">
@@ -208,14 +311,37 @@ export function MemberManager({ members, onAddMember, onImportMembers }) {
                         Add New Member
                     </h3>
                     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                        {/* Member Type Dropdown */}
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">Member Code</label>
+                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">Member Type</label>
+                            <div className="relative">
+                                <select
+                                    className="w-full appearance-none px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white text-sm"
+                                    value={newMemberType}
+                                    onChange={(e) => setNewMemberType(e.target.value)}
+                                >
+                                    <option value="Member">Member</option>
+                                    <option value="Non-Member">Non-Member</option>
+                                </select>
+                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">
+                                Member Code
+                                <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">Auto-Assigned</span>
+                            </label>
                             <input
                                 type="text"
-                                placeholder="e.g. 001"
+                                placeholder="e.g. M0001"
                                 value={newMemberCode}
                                 onChange={(e) => setNewMemberCode(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder-gray-300 font-mono text-sm"
+                                className="w-full px-3 py-2 border border-blue-200 bg-blue-50/30 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder-gray-300 font-mono text-sm"
                             />
                         </div>
 
@@ -266,7 +392,7 @@ export function MemberManager({ members, onAddMember, onImportMembers }) {
                 </div>
             </div>
 
-            {/* Edit Modal - Moved to end and verified z-index */}
+            {/* Edit Modal */}
             {
                 editingMember && (
                     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] backdrop-blur-sm">
@@ -279,6 +405,7 @@ export function MemberManager({ members, onAddMember, onImportMembers }) {
                                         className="w-full border p-2 rounded bg-gray-50 font-mono"
                                         value={editingMember.code}
                                         onChange={e => setEditingMember({ ...editingMember, code: e.target.value })}
+                                        placeholder="e.g. M0001"
                                     />
                                 </div>
                                 <div>
@@ -291,18 +418,25 @@ export function MemberManager({ members, onAddMember, onImportMembers }) {
                                 </div>
                                 <div>
                                     <label className="text-sm font-bold text-gray-500 uppercase tracking-wider block mb-1">Type</label>
-                                    <select
-                                        className="w-full border p-2 rounded"
-                                        value={editingMember.type}
-                                        onChange={e => setEditingMember({ ...editingMember, type: e.target.value })}
-                                    >
-                                        <option value="Member">Member</option>
-                                        <option value="Non-Member">Non-Member</option>
-                                    </select>
+                                    <div className="relative">
+                                        <select
+                                            className="w-full appearance-none border p-2 rounded bg-white"
+                                            value={editingMember.type}
+                                            onChange={e => setEditingMember({ ...editingMember, type: e.target.value })}
+                                        >
+                                            <option value="Member">Member</option>
+                                            <option value="Non-Member">Non-Member</option>
+                                        </select>
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="flex justify-end gap-2 mt-6">
-                                    <button className="btn btn-outline" onClick={() => setEditingMember(null)}>Cancel</button>
-                                    <button className="btn btn-primary px-6" onClick={handleSaveEdit}>Save Changes</button>
+                                    <button className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50" onClick={() => setEditingMember(null)}>Cancel</button>
+                                    <button className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700" onClick={handleSaveEdit}>Save Changes</button>
                                 </div>
                             </div>
                         </div>

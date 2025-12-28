@@ -34,7 +34,35 @@ body {
   background-color: #f8fafc;
 }
 
-/* React Datepicker Customization to prevent transparency */
+/* React Datepicker Customization */
+/* Hide Scrollbar but allow scrolling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  /* slate-300 */
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  /* slate-400 */
+}
+
+/* Or simpler "Hidden" approach if strictly requested "Remove" */
+/* 
+::-webkit-scrollbar {
+    display: none;
+} 
+*/
+
 .react-datepicker {
   font-family: inherit !important;
   font-size: 0.8rem !important;
@@ -68,4 +96,62 @@ body {
 .react-datepicker-popper {
   z-index: 60 !important;
   /* Ensure it stays on top */
+}
+
+/* Toast Animation */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Print Styles */
+@media print {
+
+  /* Hide Sidebar and Navigation */
+  aside,
+  nav,
+  .no-print,
+  #toast-container {
+    display: none !important;
+  }
+
+  /* Reset main layout to standard block for printing */
+  main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    display: block !important;
+  }
+
+  /* Ensure body is white */
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+
+  /* Hide header/tabs in App.jsx if needed, targeting specific classes */
+  /* Assuming the tab switcher is inside Layout or App, we might need a class there. */
+  /* For now, we will target generic structure or add utility classes in components */
+
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Force table to render fully */
+  table {
+    width: 100% !important;
+    font-size: 10pt;
+  }
 }

@@ -4,16 +4,42 @@ import { MemberManager } from './components/MemberManager'
 import { ServiceSession } from './components/ServiceSession'
 import { AnalyticsDashboard } from './components/AnalyticsDashboard'
 import { StorageService } from './services/StorageService'
+import { MonthlySummary } from './components/MonthlySummary'
+import { ToastContainer } from './components/Toast'
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [members, setMembers] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [toasts, setToasts] = useState([]);
 
-  // Load members on mount
+  // Toast Handler
+  const showToast = (message, type = 'info') => {
+    const id = crypto.randomUUID();
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Load members on mount and sanitize data
   useEffect(() => {
     const loadedMembers = StorageService.getMembers();
-    setMembers(loadedMembers);
+
+    // Data Migration: Ensure all members have IDs
+    const sanitizedMembers = loadedMembers.map(m => ({
+      ...m,
+      id: m.id || crypto.randomUUID()
+    }));
+
+    // If we changed anything (added IDs), save it back immediately to fix the storage
+    if (JSON.stringify(loadedMembers) !== JSON.stringify(sanitizedMembers)) {
+      console.log("Migrating legacy data: Added IDs to members.");
+      StorageService.saveMembers(sanitizedMembers);
+    }
+
+    setMembers(sanitizedMembers);
     setIsLoaded(true);
   }, []);
 
@@ -26,18 +52,16 @@ function App() {
   }, [members, isLoaded]);
 
   const handleImportMembers = (newMembers) => {
+    console.log("App: handleImportMembers called with count:", newMembers.length);
+    // showToast("Updating member database...", 'info'); 
     setMembers(newMembers);
   };
 
-  // Transactions could be stored in a more complex structure (by date/service), 
-  // but for now we can keep them here or inside ServiceSession if they don't need to persist across tabs heavily yet.
-  // Ideally, state should be hoisted if we want to switch tabs without losing data.
-  // For this MV, I'll pass a simple handler or let ServiceSession manage its own ephemeral state per session, 
-  // or hoist it here. Let's hoist it to keep it safe.
   const [currentServiceData, setCurrentServiceData] = useState({
     serviceType: 'Sunday Morning',
-    date: new Date().toISOString().split('T')[0],
-    transactions: []
+    date: '',
+    transactions: [],
+    cashCounts: {}
   });
 
   const handleAddMember = (member) => {
@@ -46,9 +70,14 @@ function App() {
 
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+
       {activeTab === 'dashboard' && (
         <div className="flex flex-col gap-6">
-          <div className="max-w-6xl mx-auto w-full">
+          <div className="max-w-6xl mx-auto w-full print:hidden">
             <header className="mb-8">
               <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Dashboard</h1>
               <p className="text-gray-500 mt-1">Overview of your church records.</p>
@@ -59,7 +88,7 @@ function App() {
                 <div className="flex items-center gap-4">
                   <div className="p-3 bg-blue-50 rounded-xl text-blue-600">
                     <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h2a2 2 0 002-2V6a2 2 0 00-2-2H9a2 2 0 00-2 2v12a2 2 0 002 2h8zM9 4a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                   </div>
                   <div>
@@ -71,7 +100,10 @@ function App() {
             </div>
           </div>
           {/* Include Analytics Dashboard here as part of the main Dashboard view if desired, or just keep it simple */}
-          <AnalyticsDashboard />
+          <div className="print:hidden">
+            <AnalyticsDashboard />
+          </div>
+          <MonthlySummary />
         </div>
       )}
 
@@ -80,6 +112,7 @@ function App() {
           members={members}
           onAddMember={handleAddMember}
           onImportMembers={handleImportMembers}
+          showToast={showToast}
         />
       )}
 
@@ -88,6 +121,7 @@ function App() {
           members={members}
           serviceData={currentServiceData}
           onUpdateServiceData={setCurrentServiceData}
+          showToast={showToast}
         />
       )}
     </Layout>

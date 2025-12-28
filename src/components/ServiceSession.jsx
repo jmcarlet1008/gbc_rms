@@ -13,8 +13,8 @@ const SERVICE_TYPES = [
     'Prayer Meeting (Wed)'
 ];
 
-export function ServiceSession({ members, serviceData, onUpdateServiceData }) {
-    const { serviceType, date, transactions } = serviceData;
+export function ServiceSession({ members, serviceData, onUpdateServiceData, showToast }) {
+    const { serviceType, date, transactions, cashCounts } = serviceData;
     const [actualCashCount, setActualCashCount] = useState(0);
 
     const selectedDate = date ? new Date(date) : null;
@@ -36,24 +36,83 @@ export function ServiceSession({ members, serviceData, onUpdateServiceData }) {
 
     const handleSave = () => {
         if (!date) {
-            alert("Please select a date first.");
+            showToast("Please select a date first.", 'error');
             return;
         }
-        StorageService.saveServiceRecord(serviceType, date, transactions);
-        alert("Saved record for " + serviceType + " on " + date);
+
+        // Need access to DENOMINATIONS for calculation in handleSave
+        const DENOMINATIONS = [1000, 500, 200, 100, 50, 20, 10, 5, 1];
+
+        // Balance Check for Save Prompt
+        // Calculate totals on the fly to ensure accuracy
+        const memberTx = transactions.filter(t => t.type === 'Member');
+        const nonMemberTx = transactions.filter(t => t.type === 'Non-Member');
+        const guestTx = transactions.filter(t => t.type === 'Guest');
+
+        const calculateTotal = (txs) => {
+            return txs.reduce((sum, t) => {
+                const rowSum = Object.keys(t).reduce((rSum, key) => {
+                    if (['id', 'memberId', 'tagId', 'guestName', 'type', 'GCASH'].includes(key)) return rSum;
+                    return rSum + (parseFloat(t[key]) || 0);
+                }, 0);
+                return sum + rowSum;
+            }, 0);
+        };
+
+        const totalCalculated = calculateTotal(memberTx) + calculateTotal(nonMemberTx) + calculateTotal(guestTx);
+        const totalGcash = transactions.reduce((sum, t) => sum + (parseFloat(t.GCASH) || 0), 0);
+
+        // We need to calculate the actual cash from cashCounts to check balance
+        const actualCash = DENOMINATIONS.reduce((sum, d) => sum + (d * (parseInt(cashCounts?.[d]) || 0)), 0);
+
+        // Correct Logic: Actual Cash must equal (Total Income - GCash)
+        const expectedCash = totalCalculated - totalGcash;
+        const isBalanced = (actualCash - expectedCash) === 0;
+
+        // Save transactions AND cashValidation data
+        const dataToSave = {
+            transactions,
+            cashCounts: cashCounts || {}
+        };
+        StorageService.saveServiceRecord(serviceType, date, dataToSave);
+
+        if (isBalanced) {
+            showToast("Records Updated Successfully.", 'success');
+        } else {
+            showToast("Record saved, but cash count is NOT balanced.", 'warning');
+        }
     };
 
     const handleLoad = () => {
         if (!date) {
-            alert("Please select a date to load.");
+            showToast("Please select a date to load.", 'error');
             return;
         }
         const loadedData = StorageService.getServiceRecord(serviceType, date);
         if (loadedData) {
-            onUpdateServiceData({ ...serviceData, transactions: loadedData });
-            alert("Record loaded successfully.");
+            // Support legacy format (array) or new format (object)
+            if (Array.isArray(loadedData)) {
+                onUpdateServiceData({
+                    ...serviceData,
+                    transactions: loadedData,
+                    cashCounts: {} // Reset or keep empty for legacy
+                });
+            } else {
+                onUpdateServiceData({
+                    ...serviceData,
+                    transactions: loadedData.transactions || [],
+                    cashCounts: loadedData.cashCounts || {}
+                });
+            }
+            showToast("Records loaded.", 'success');
         } else {
-            alert("No record found for this date and service type.");
+            // Reset form on empty
+            onUpdateServiceData({
+                ...serviceData,
+                transactions: [],
+                cashCounts: {}
+            });
+            showToast("No records found. Form reset.", 'info');
         }
     };
 
@@ -91,6 +150,15 @@ export function ServiceSession({ members, serviceData, onUpdateServiceData }) {
         const updated = transactions.filter((_, i) => i !== index);
         onUpdateServiceData({ ...serviceData, transactions: updated });
     };
+
+    // Use useCallback to prevent infinite loop
+    const handleCashCountsChange = React.useCallback((newCounts) => {
+        onUpdateServiceData(prev => ({
+            ...prev,
+            cashCounts: newCounts
+        }));
+    }, [onUpdateServiceData]);
+
 
     const memberTransactions = transactions.filter(t => t.type === 'Member');
     const nonMemberTransactions = transactions.filter(t => t.type === 'Non-Member');
@@ -141,7 +209,13 @@ export function ServiceSession({ members, serviceData, onUpdateServiceData }) {
                                 <DatePicker
                                     selected={selectedDate}
                                     onChange={(d) => {
-                                        const dateString = d ? d.toISOString().split('T')[0] : '';
+                                        let dateString = '';
+                                        if (d) {
+                                            const year = d.getFullYear();
+                                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                                            const day = String(d.getDate()).padStart(2, '0');
+                                            dateString = `${year}-${month}-${day}`;
+                                        }
                                         onUpdateServiceData({ ...serviceData, date: dateString });
                                     }}
                                     filterDate={isDateAllowed}
@@ -250,6 +324,8 @@ export function ServiceSession({ members, serviceData, onUpdateServiceData }) {
                 <CashValidator
                     expectedCash={Math.max(0, grandTotal - totalGcash)}
                     onTotalChange={setActualCashCount}
+                    counts={cashCounts}
+                    onChange={handleCashCountsChange}
                 />
                 <ReconciliationSummary
                     memberTotal={memberTotal}

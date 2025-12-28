@@ -13,9 +13,38 @@ export function TransactionTable({
     onAddTransaction,
     title
 }) {
+    const [currentPage, setCurrentPage] = React.useState(1);
+    const [rowsPerPage, setRowsPerPage] = React.useState(20);
+
+    // Reset to page 1 if transactions length changes significantly (optional, but good UX)
+    // Actually typically if you filter, yes. But here we just add/remove. 
+    // If we delete the last item on a page and it becomes empty, go back one page.
+    const totalPages = Math.ceil(transactions.length / rowsPerPage);
+
+    React.useEffect(() => {
+        if (currentPage > totalPages && totalPages > 0) {
+            setCurrentPage(totalPages);
+        }
+    }, [transactions.length, totalPages, currentPage]);
 
     const calculateRowTotal = (t) => {
         return FUNDS.reduce((sum, fund) => sum + (parseFloat(t[fund]) || 0), 0);
+    };
+
+    // Pagination Logic
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    const endIndex = startIndex + rowsPerPage;
+    const displayedTransactions = transactions.slice(startIndex, endIndex);
+
+    // Handler wrappers to convert local index to global index
+    const handleUpdate = (localIndex, field, value) => {
+        const globalIndex = startIndex + localIndex;
+        onUpdateTransaction(globalIndex, field, value);
+    };
+
+    const handleRemove = (localIndex) => {
+        const globalIndex = startIndex + localIndex;
+        onRemoveTransaction(globalIndex);
     };
 
     return (
@@ -24,11 +53,16 @@ export function TransactionTable({
                 <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
                     {mode === 'member' && <span className="w-2 h-2 rounded-full bg-blue-500"></span>}
                     {mode === 'guest' && <span className="w-2 h-2 rounded-full bg-orange-500"></span>}
-                    {title}
+                    {title} <span className="text-gray-400 font-normal normal-case ml-1">({transactions.length})</span>
                 </h3>
                 <button
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-                    onClick={onAddTransaction}
+                    onClick={() => {
+                        onAddTransaction();
+                        // Optional: Navigate to last page to see new entry?
+                        // Usually adding appends to end, so maybe good to jump to last page.
+                        // But let's leave default behavior first.
+                    }}
                 >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -51,66 +85,82 @@ export function TransactionTable({
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                        {transactions.map((t, index) => (
-                            <tr key={t.id || index} className="hover:bg-blue-50/30 transition-colors group">
-                                <td className="p-2 pl-3">
-                                    {mode === 'guest' ? (
-                                        <input
-                                            type="text"
-                                            placeholder="Guest Name"
-                                            value={t.guestName || ''}
-                                            onChange={(e) => onUpdateTransaction(index, 'guestName', e.target.value)}
-                                            className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-transparent focus:bg-white focus:border-indigo-300 rounded outline-none transition-all placeholder-gray-400 font-medium text-gray-800"
-                                        />
-                                    ) : (
-                                        <div className="w-full">
-                                            <Combobox
-                                                options={members}
-                                                value={t.memberId}
-                                                onChange={(val) => onUpdateTransaction(index, 'memberId', val)}
-                                                placeholder="Search Member..."
+                        {displayedTransactions.map((t, localIndex) => {
+                            // Filter available members logic preserved
+                            const allSelectedIds = new Set(
+                                transactions
+                                    .map(tx => tx.memberId)
+                                    .filter(Boolean)
+                                    .map(id => String(id))
+                            );
+
+                            const availableMembers = members.filter(m => {
+                                const memberId = String(m.id);
+                                const currentTransactionMemberId = t.memberId ? String(t.memberId) : null;
+                                return !allSelectedIds.has(memberId) || memberId === currentTransactionMemberId;
+                            });
+
+                            return (
+                                <tr key={t.id || localIndex} className="hover:bg-blue-50/30 transition-colors group">
+                                    <td className="p-2 pl-3">
+                                        {mode === 'guest' ? (
+                                            <input
+                                                type="text"
+                                                placeholder="Guest Name"
+                                                value={t.guestName || ''}
+                                                onChange={(e) => handleUpdate(localIndex, 'guestName', e.target.value)}
+                                                className="w-full text-xs py-1.5 px-2 bg-gray-50 border border-transparent focus:bg-white focus:border-indigo-300 rounded outline-none transition-all placeholder-gray-400 font-medium text-gray-800"
                                             />
-                                        </div>
-                                    )}
-                                </td>
-                                {FUNDS.map(fund => (
-                                    <td key={fund} className="p-1.5">
+                                        ) : (
+                                            <div className="w-full">
+                                                <Combobox
+                                                    options={availableMembers}
+                                                    value={t.memberId}
+                                                    onChange={(val) => handleUpdate(localIndex, 'memberId', val)}
+                                                    placeholder="Search Member..."
+                                                />
+                                            </div>
+                                        )}
+                                    </td>
+                                    {FUNDS.map(fund => (
+                                        <td key={fund} className="p-1.5">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                className="w-full text-xs py-1.5 px-1 text-center bg-gray-50/50 border border-transparent focus:bg-white focus:border-indigo-300 rounded outline-none transition-all font-mono text-gray-700 hover:bg-white hover:border-gray-200"
+                                                placeholder="0"
+                                                value={t[fund] || ''}
+                                                onChange={(e) => handleUpdate(localIndex, fund, e.target.value)}
+                                            />
+                                        </td>
+                                    ))}
+                                    <td className="p-1.5 bg-indigo-50/10">
                                         <input
                                             type="number"
                                             min="0"
-                                            className="w-full text-xs py-1.5 px-1 text-center bg-gray-50/50 border border-transparent focus:bg-white focus:border-indigo-300 rounded outline-none transition-all font-mono text-gray-700 hover:bg-white hover:border-gray-200"
+                                            className="w-full text-xs py-1.5 px-1 text-center bg-indigo-50/50 border border-transparent focus:bg-white focus:border-indigo-400 rounded outline-none transition-all font-mono font-medium text-indigo-700 placeholder-indigo-200"
                                             placeholder="0"
-                                            value={t[fund] || ''}
-                                            onChange={(e) => onUpdateTransaction(index, fund, e.target.value)}
+                                            value={t.GCASH || ''}
+                                            onChange={(e) => handleUpdate(localIndex, 'GCASH', e.target.value)}
                                         />
                                     </td>
-                                ))}
-                                <td className="p-1.5 bg-indigo-50/10">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        className="w-full text-xs py-1.5 px-1 text-center bg-indigo-50/50 border border-transparent focus:bg-white focus:border-indigo-400 rounded outline-none transition-all font-mono font-medium text-indigo-700 placeholder-indigo-200"
-                                        placeholder="0"
-                                        value={t.GCASH || ''}
-                                        onChange={(e) => onUpdateTransaction(index, 'GCASH', e.target.value)}
-                                    />
-                                </td>
-                                <td className="p-2 text-center font-bold text-gray-900 bg-gray-50/30 font-mono">
-                                    {calculateRowTotal(t).toLocaleString()}
-                                </td>
-                                <td className="p-2 text-center">
-                                    <button
-                                        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100"
-                                        onClick={() => onRemoveTransaction(index)}
-                                        title="Remove Entry"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
+                                    <td className="p-2 text-center font-bold text-gray-900 bg-gray-50/30 font-mono">
+                                        {calculateRowTotal(t).toLocaleString()}
+                                    </td>
+                                    <td className="p-2 text-center">
+                                        <button
+                                            className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                                            onClick={() => handleRemove(localIndex)}
+                                            title="Remove Entry"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                         {transactions.length === 0 && (
                             <tr>
                                 <td colSpan={FUNDS.length + 4} className="text-center py-12">
@@ -126,6 +176,54 @@ export function TransactionTable({
                     </tbody>
                 </table>
             </div>
+
+            {/* Pagination Controls */}
+            {transactions.length > 0 && (
+                <div className="p-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between text-xs text-gray-600">
+                    <div className="flex items-center gap-2">
+                        <span>Rows per page:</span>
+                        <select
+                            value={rowsPerPage}
+                            onChange={(e) => {
+                                setRowsPerPage(Number(e.target.value));
+                                setCurrentPage(1); // Reset to page 1 when changing density
+                            }}
+                            className="bg-white border border-gray-200 rounded px-2 py-1 outline-none text-gray-700"
+                        >
+                            <option value={20}>20</option>
+                            <option value={30}>30</option>
+                            <option value={40}>40</option>
+                            <option value={50}>50</option>
+                        </select>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        <span>
+                            {startIndex + 1}-{Math.min(endIndex, transactions.length)} of {transactions.length}
+                        </span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                className={`p-1 rounded hover:bg-gray-200 ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                            <button
+                                className={`p-1 rounded hover:bg-gray-200 ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage >= totalPages}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
